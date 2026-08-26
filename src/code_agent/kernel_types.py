@@ -12,6 +12,17 @@ def _require_non_blank(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} must not be blank")
 
 
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    description: str
+    input_schema: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        _require_non_blank(self.name, "name")
+        _require_non_blank(self.description, "description")
+
+
 class MessageRole(StrEnum):
     SYSTEM = "system"
     USER = "user"
