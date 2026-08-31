@@ -14,6 +14,7 @@ from code_agent.tool_registry import (
 from code_agent.tool_runtime import (
     ToolExecutionError,
     ToolRuntime,
+    PreparedToolCall,
 )
 
 def _accept_any_arguments(
@@ -50,8 +51,15 @@ def test_runtime_executes_registered_tool() -> None:
         arguments={"path": "README.md"},
     )
 
-    result = runtime.execute(call)
+    preparation = runtime.prepare(call)
 
+    assert isinstance(
+        preparation,
+        PreparedToolCall,
+    )
+
+    result = runtime.execute(preparation)
+    # 成功测试末尾补回断言
     assert result == ToolResult(
         call_id="call_1",
         content="README contents",
@@ -68,13 +76,14 @@ def test_runtime_returns_error_for_unknown_tool() -> None:
         arguments={},
     )
 
-    result = runtime.execute(call)
+    result = runtime.prepare(call)
 
     assert result == ToolResult(
         call_id="call_2",
         content="unknown tool: delete_everything",
         is_error=True,
     )
+
 
 def test_runtime_converts_expected_tool_error() -> None:
     def handler(
@@ -98,7 +107,10 @@ def test_runtime_converts_expected_tool_error() -> None:
         arguments={"path": "missing.txt"},
     )
 
-    result = runtime.execute(call)
+    preparation = runtime.prepare(call)
+    assert isinstance(preparation, PreparedToolCall)
+
+    result = runtime.execute(preparation)
 
     assert result == ToolResult(
         call_id="call_3",
@@ -132,9 +144,11 @@ def test_runtime_propagates_unexpected_handler_error() -> None:
         tool_name="read_file",
         arguments={"path": "README.md"},
     )
+    preparation = runtime.prepare(call)
+    assert isinstance(preparation, PreparedToolCall)
 
     with pytest.raises(AttributeError) as exc_info:
-        runtime.execute(call)
+        runtime.execute(preparation)
 
     assert exc_info.value is original_error
 

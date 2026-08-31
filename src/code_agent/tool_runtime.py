@@ -1,10 +1,25 @@
-# src/code_agent/tool_runtime.py
+from dataclasses import dataclass
+from typing import TypeAlias
 
 from .kernel_types import ToolCall, ToolResult
 from .tool_registry import (
+    InvalidToolArgumentsError,
+    ToolDefinition,
     ToolRegistry,
     UnknownToolError,
-    InvalidToolArgumentsError,
+)
+
+
+@dataclass(frozen=True)
+class PreparedToolCall:
+    """A known tool call whose arguments passed validation."""
+
+    call: ToolCall
+    definition: ToolDefinition
+
+
+ToolPreparation: TypeAlias = (
+    PreparedToolCall | ToolResult
 )
 
 
@@ -16,19 +31,25 @@ class ToolRuntime:
     def __init__(self, registry: ToolRegistry) -> None:
         self._registry = registry
 
-    def execute(self, call: ToolCall) -> ToolResult:
+    def prepare(
+        self,
+        call: ToolCall,
+    ) -> ToolPreparation:
         try:
-            # TODO 1：按工具名称解析 ToolDefinition
-            definition =self._registry.resolve(call.tool_name)
+            definition = self._registry.resolve(
+                call.tool_name
+            )
         except UnknownToolError:
             return ToolResult(
-                # TODO 2：复制原工具调用的 call_id
-                call_id= call.call_id,
+                call_id=call.call_id,
                 content=f"unknown tool: {call.tool_name}",
                 is_error=True,
             )
+
         try:
-            definition.validate_arguments(call.arguments)
+            definition.validate_arguments(
+                call.arguments
+            )
         except InvalidToolArgumentsError as exc:
             return ToolResult(
                 call_id=call.call_id,
@@ -36,20 +57,28 @@ class ToolRuntime:
                 is_error=True,
             )
 
+        return PreparedToolCall(
+            call=call,
+            definition=definition,
+        )
+
+    def execute(
+        self,
+        prepared: PreparedToolCall,
+    ) -> ToolResult:
         try:
-            # TODO 3：调用 handler，并传入 arguments
-            content = definition.handler(call.arguments)
+            content = prepared.definition.handler(
+                prepared.call.arguments
+            )
         except ToolExecutionError as exc:
             return ToolResult(
-                call_id=call.call_id,
-                # ToolExecutionError 的消息必须是安全且可展示的
+                call_id=prepared.call.call_id,
                 content=str(exc),
                 is_error=True,
             )
 
         return ToolResult(
-            call_id=call.call_id,
-            # TODO 4：填入 handler 的返回内容
+            call_id=prepared.call.call_id,
             content=content,
             is_error=False,
         )
