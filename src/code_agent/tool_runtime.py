@@ -4,6 +4,7 @@ from .kernel_types import ToolCall, ToolResult
 from .tool_registry import (
     ToolRegistry,
     UnknownToolError,
+    InvalidToolArgumentsError,
 )
 
 
@@ -24,6 +25,14 @@ class ToolRuntime:
                 # TODO 2：复制原工具调用的 call_id
                 call_id= call.call_id,
                 content=f"unknown tool: {call.tool_name}",
+                is_error=True,
+            )
+        try:
+            definition.validate_arguments(call.arguments)
+        except InvalidToolArgumentsError as exc:
+            return ToolResult(
+                call_id=call.call_id,
+                content=str(exc),
                 is_error=True,
             )
 

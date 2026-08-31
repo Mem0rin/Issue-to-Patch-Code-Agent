@@ -16,6 +16,16 @@ from code_agent.tool_runtime import (
     ToolRuntime,
 )
 
+def _accept_any_arguments(
+    arguments: Mapping[str, object],
+) -> None:
+    _ = arguments
+
+def validate_read_file_arguments(
+    arguments: Mapping[str, object],
+) -> None:
+    ...
+
 
 def test_runtime_executes_registered_tool() -> None:
     received: list[Mapping[str, object]] = []
@@ -30,6 +40,7 @@ def test_runtime_executes_registered_tool() -> None:
             description="Read a workspace file.",
             input_schema={"type": "object"},
         ),
+        validate_arguments=_accept_any_arguments,
         handler=handler,
     )
     runtime = ToolRuntime(ToolRegistry([definition]))
@@ -77,6 +88,7 @@ def test_runtime_converts_expected_tool_error() -> None:
             description="Read a workspace file.",
             input_schema={"type": "object"},
         ),
+        validate_arguments=_accept_any_arguments,
         handler=handler,
     )
     runtime = ToolRuntime(ToolRegistry([definition]))
@@ -111,6 +123,7 @@ def test_runtime_propagates_unexpected_handler_error() -> None:
             description="Read a workspace file.",
             input_schema={"type": "object"},
         ),
+        validate_arguments=_accept_any_arguments,
         handler=handler,
     )
     runtime = ToolRuntime(ToolRegistry([definition]))

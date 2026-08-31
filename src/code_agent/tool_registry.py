@@ -1,5 +1,4 @@
 # src/code_agent/tool_registry.py
-
 from collections.abc import (
     Callable,
     Mapping,
@@ -10,6 +9,14 @@ from typing import TypeAlias
 
 from .kernel_types import ToolSpec
 
+class InvalidToolArgumentsError(ValueError):
+    """Tool arguments do not satisfy the runtime contract."""
+
+
+ToolArgumentValidator: TypeAlias = Callable[
+    [Mapping[str, object]],
+    None,
+]
 
 ToolHandler: TypeAlias = Callable[
     [Mapping[str, object]],
@@ -20,6 +27,7 @@ ToolHandler: TypeAlias = Callable[
 @dataclass(frozen=True)
 class ToolDefinition:
     spec: ToolSpec
+    validate_arguments: ToolArgumentValidator
     handler: ToolHandler
 
 

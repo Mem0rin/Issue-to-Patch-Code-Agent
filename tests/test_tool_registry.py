@@ -12,6 +12,11 @@ from code_agent.tool_registry import (
     UnknownToolError,
 )
 
+def _accept_any_arguments(
+    arguments: Mapping[str, object],
+) -> None:
+    _ = arguments
+
 
 def _handler(arguments: Mapping[str, object]) -> str:
     return f"received: {arguments}"
@@ -24,6 +29,7 @@ def _make_tool(name: str) -> ToolDefinition:
             description=f"Execute {name}.",
             input_schema={"type": "object"},
         ),
+        validate_arguments=_accept_any_arguments,
         handler=_handler,
     )
 
