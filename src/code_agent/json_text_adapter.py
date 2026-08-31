@@ -1,17 +1,17 @@
 """Adapter from JSON-text model responses to Kernel actions."""
-'''Model - Adapter - Provider'''
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from .json_action_parser import parse_json_action
 from .json_text_messages import (
     ProviderMessage,
     build_provider_messages,
 )
-
-from .json_action_parser import parse_json_action
 from .kernel_types import HistoryItem, ToolSpec
 from .model_adapter import (
+    InvalidModelOutputError,
     ModelCallBudget,
     ModelProviderError,
     ModelResponse,
@@ -51,7 +51,7 @@ class JsonTextModelAdapter:
         budget: ModelCallBudget,
     ) -> ModelResponse:
         provider_messages = build_provider_messages(history)
-        
+
         try:
             raw_response = self._provider.complete(
                 messages=provider_messages,
@@ -63,12 +63,18 @@ class JsonTextModelAdapter:
                 "provider request failed"
             ) from exc
 
-        action = parse_json_action(raw_response.text)
-
         usage = TokenUsage(
             input_tokens=raw_response.input_tokens,
             output_tokens=raw_response.output_tokens,
         )
+
+        try:
+            action = parse_json_action(raw_response.text)
+        except InvalidModelOutputError as error:
+            raise InvalidModelOutputError(
+                str(error),
+                usage=usage,
+            ) from error
 
         return ModelResponse(
             action=action,

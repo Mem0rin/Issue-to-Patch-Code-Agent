@@ -15,10 +15,6 @@ class ModelProviderError(RuntimeError):
     """The provider request failed."""
 
 
-class InvalidModelOutputError(ValueError):
-    """The provider response cannot become a valid Action."""
-
-
 class FakeModelExhaustedError(RuntimeError):
     """The fake has no configured outcome left."""
 
@@ -46,6 +42,19 @@ class TokenUsage:
     @property
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
+
+
+class InvalidModelOutputError(ValueError):
+    """The provider response cannot become a valid Action."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        usage: TokenUsage | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.usage = usage
 
 
 @dataclass(frozen=True)

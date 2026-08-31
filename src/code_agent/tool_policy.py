@@ -1,4 +1,4 @@
-# src/code_agent/tool_policy.py
+"""Decide whether tool calls are allowed, confirmed, or denied."""
 
 from collections.abc import Iterable
 from dataclasses import dataclass

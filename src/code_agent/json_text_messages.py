@@ -1,5 +1,5 @@
-"""Adapter from JSON-text model responses to Kernel actions."""
-"""Kernel - Adapter - Provider"""
+"""Encode Kernel history as JSON-text provider messages."""
+
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass

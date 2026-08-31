@@ -154,12 +154,18 @@ def test_complete_preserves_invalid_model_output_error() -> None:
     with pytest.raises(
         InvalidModelOutputError,
         match="model output must be valid JSON",
-    ):
+    ) as exc_info:
         adapter.complete(
             history=[],
             tools=[],
             budget=ModelCallBudget(128),
         )
+
+    assert exc_info.value.usage == TokenUsage(
+        input_tokens=20,
+        output_tokens=5,
+    )
+
 
 def test_complete_converts_tool_call() -> None:
     provider = StubProvider(
