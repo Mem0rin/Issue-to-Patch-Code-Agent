@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .kernel_types import (
     HistoryItem,
     Message,
+    ModelFeedback,
     ToolCall,
     ToolResult,
 )
@@ -38,6 +39,22 @@ def build_provider_messages(
                 ProviderMessage(
                     role=item.role.value,
                     content=item.content,
+                )
+            )
+            continue
+
+        if isinstance(item, ModelFeedback):
+            messages.append(
+                ProviderMessage(
+                    role="user",
+                    content=_encode_json({
+                        "type": "model_feedback",
+                        "error": item.error_message,
+                        "instruction": (
+                            "Return exactly one valid JSON action "
+                            "matching the declared schema."
+                        ),
+                    }),
                 )
             )
             continue

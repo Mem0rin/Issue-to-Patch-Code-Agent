@@ -7,6 +7,7 @@ from code_agent.json_text_messages import (
 from code_agent.kernel_types import (
     HistoryItem,
     Message,
+    ModelFeedback,
     MessageRole,
     ToolCall,
     ToolResult,
@@ -28,6 +29,9 @@ def test_build_provider_messages_preserves_history() -> None:
             call_id="call_1",
             content="README contents",
             is_error=False,
+        ),
+        ModelFeedback(
+            error_message="arguments must be an object",
         ),
     ]
 
@@ -54,6 +58,15 @@ def test_build_provider_messages_preserves_history() -> None:
                 '"content":"README contents",'
                 '"is_error":false,'
                 '"type":"tool_result"}'
+            ),
+        ),
+        ProviderMessage(
+            role="user",
+            content=(
+                '{"error":"arguments must be an object",'
+                '"instruction":"Return exactly one valid JSON action '
+                'matching the declared schema.",'
+                '"type":"model_feedback"}'
             ),
         ),
     )

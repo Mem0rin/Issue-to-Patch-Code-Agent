@@ -11,16 +11,48 @@ from .json_text_messages import (
 )
 from .kernel_types import HistoryItem, ToolSpec
 from .model_adapter import (
+    ConsumptionState,
     InvalidModelOutputError,
     ModelCallBudget,
     ModelProviderError,
     ModelResponse,
+    Retryability,
     TokenUsage,
 )
 
 
 class ProviderError(RuntimeError):
     """The underlying provider request failed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        consumption_state: ConsumptionState = (
+            ConsumptionState.UNKNOWN_CONSUMPTION
+        ),
+        retryability: Retryability = Retryability.NON_RETRYABLE,
+        usage: TokenUsage | None = None,
+    ) -> None:
+        if (
+            consumption_state is ConsumptionState.ACTUAL_USAGE
+            and usage is None
+        ):
+            raise ValueError(
+                "usage is required for actual consumption"
+            )
+        if (
+            consumption_state is not ConsumptionState.ACTUAL_USAGE
+            and usage is not None
+        ):
+            raise ValueError(
+                "usage must be absent unless consumption is actual"
+            )
+
+        super().__init__(message)
+        self.consumption_state = consumption_state
+        self.retryability = retryability
+        self.usage = usage
 
 
 @dataclass(frozen=True)
@@ -60,7 +92,10 @@ class JsonTextModelAdapter:
             )
         except ProviderError as exc:
             raise ModelProviderError(
-                "provider request failed"
+                "provider request failed",
+                consumption_state=exc.consumption_state,
+                retryability=exc.retryability,
+                usage=exc.usage,
             ) from exc
 
         usage = TokenUsage(

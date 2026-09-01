@@ -10,6 +10,7 @@ from code_agent.kernel_types import (
     HistoryItem,
 )
 from code_agent.model_adapter import (
+    ConsumptionState,
     FakeModelAdapter,
     FakeModelExhaustedError,
     InvalidModelOutputError,
@@ -18,6 +19,7 @@ from code_agent.model_adapter import (
     ModelCallBudget,
     ModelProviderError,
     ModelResponse,
+    Retryability,
     TokenUsage,
 )
 
@@ -63,6 +65,52 @@ def test_token_usage_rejects_negative_output_tokens() -> None:
         TokenUsage(
             input_tokens=0,
             output_tokens=-1,
+        )
+
+
+def test_provider_error_defaults_to_unknown_consumption() -> None:
+    error = ModelProviderError("provider timed out")
+
+    assert (
+        error.consumption_state
+        is ConsumptionState.UNKNOWN_CONSUMPTION
+    )
+    assert error.retryability is Retryability.NON_RETRYABLE
+    assert error.usage is None
+
+
+def test_provider_error_can_be_explicitly_retryable() -> None:
+    error = ModelProviderError(
+        "provider returned 503",
+        retryability=Retryability.RETRYABLE,
+    )
+
+    assert error.retryability is Retryability.RETRYABLE
+
+
+def test_actual_consumption_requires_usage() -> None:
+    with pytest.raises(ValueError, match="usage is required"):
+        ModelProviderError(
+            "provider failed after billing",
+            consumption_state=ConsumptionState.ACTUAL_USAGE,
+        )
+
+
+@pytest.mark.parametrize(
+    "consumption_state",
+    [
+        ConsumptionState.NO_CONSUMPTION,
+        ConsumptionState.UNKNOWN_CONSUMPTION,
+    ],
+)
+def test_non_actual_consumption_rejects_usage(
+    consumption_state: ConsumptionState,
+) -> None:
+    with pytest.raises(ValueError, match="usage must be absent"):
+        ModelProviderError(
+            "provider failed",
+            consumption_state=consumption_state,
+            usage=TokenUsage(input_tokens=10, output_tokens=2),
         )
 
 

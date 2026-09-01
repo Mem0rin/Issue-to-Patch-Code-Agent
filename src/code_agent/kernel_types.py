@@ -39,6 +39,16 @@ class Message:
 
 
 @dataclass(frozen=True)
+class ModelFeedback:
+    """Runtime feedback that helps the model correct its next action."""
+
+    error_message: str
+
+    def __post_init__(self) -> None:
+        _require_non_blank(self.error_message, "error_message")
+
+
+@dataclass(frozen=True)
 class ToolCall:
     call_id: str
     tool_name: str
@@ -69,4 +79,4 @@ class FinalAnswer:
 
 Action: TypeAlias = ToolCall | FinalAnswer
 
-HistoryItem: TypeAlias = Message | ToolCall | ToolResult
+HistoryItem: TypeAlias = Message | ModelFeedback | ToolCall | ToolResult

@@ -4,7 +4,9 @@ from enum import StrEnum
 from time import monotonic
 
 from .model_adapter import (
+    ConsumptionState,
     InvalidModelOutputError,
+    ModelProviderError,
     ModelResponse,
     TokenUsage,
 )
@@ -66,6 +68,7 @@ class RunUsage:
     action_steps: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    reserved_tokens: int = 0
 
     def __post_init__(self) -> None:
         _require_non_negative(
@@ -84,12 +87,17 @@ class RunUsage:
             self.output_tokens,
             "output_tokens",
         )
+        _require_non_negative(
+            self.reserved_tokens,
+            "reserved_tokens",
+        )
 
     @property
     def total_tokens(self) -> int:
         return (
             self.input_tokens
             + self.output_tokens
+            + self.reserved_tokens
         )
 
 
@@ -120,6 +128,7 @@ class BudgetTracker:
         self._clock = clock
         self._started_at = clock()
         self._usage = RunUsage()
+        self._pending_reserved_tokens: int | None = None
 
     @property
     def usage(self) -> RunUsage:
@@ -150,23 +159,68 @@ class BudgetTracker:
 
     def reserve_model_call(
         self,
+        reserved_tokens: int,
     ) -> BudgetStopReason | None:
-        """Reserve one model call before contacting the provider."""
+        """Reserve one model call and its possible token consumption."""
 
-        # TODO：
-        # 1. 调用 stop_reason()
+        _require_positive(
+            reserved_tokens,
+            "reserved_tokens",
+        )
+        if self._pending_reserved_tokens is not None:
+            raise RuntimeError(
+                "a model call already has a pending reservation"
+            )
+
         reason = self.stop_reason()
-        # 2. 如果已经耗尽预算，直接返回停止原因
         if reason is not None:
             return reason
-        # 3. 否则使用 replace() 将 model_calls 加一
+
+        projected_tokens = (
+            self._usage.total_tokens
+            + reserved_tokens
+        )
+        if projected_tokens > self._budget.max_total_tokens:
+            return BudgetStopReason.TOKENS_EXHAUSTED
 
         self._usage = replace(
             self._usage,
             model_calls=self._usage.model_calls + 1,
+            reserved_tokens=(
+                self._usage.reserved_tokens
+                + reserved_tokens
+            ),
         )
-        # 4. 返回 None
+        self._pending_reserved_tokens = reserved_tokens
         return None
+
+    def _settle_token_reservation(self) -> None:
+        reserved_tokens = self._pending_reserved_tokens
+        if reserved_tokens is None:
+            raise RuntimeError(
+                "no pending model call reservation"
+            )
+
+        self._usage = replace(
+            self._usage,
+            reserved_tokens=(
+                self._usage.reserved_tokens
+                - reserved_tokens
+            ),
+        )
+        self._pending_reserved_tokens = None
+
+    def retain_model_call_reservation(self) -> None:
+        """Keep reserved tokens when actual consumption is unknown."""
+        if self._pending_reserved_tokens is None:
+            raise RuntimeError(
+                "no pending model call reservation"
+            )
+        self._pending_reserved_tokens = None
+
+    def release_model_call_reservation(self) -> None:
+        """Release reserved tokens when no consumption occurred."""
+        self._settle_token_reservation()
 
     def _record_token_usage(
         self,
@@ -188,6 +242,7 @@ class BudgetTracker:
         self,
         response: ModelResponse,
     ) -> None:
+        self._settle_token_reservation()
         self._record_token_usage(response.usage)
         self._usage = replace(
             self._usage,
@@ -198,8 +253,37 @@ class BudgetTracker:
         self,
         error: InvalidModelOutputError,
     ) -> None:
-        # TODO：
-        # 如果 error.usage 存在，就调用 _record_token_usage。
-        # 不增加 action_steps。
         if error.usage is not None:
+            self._settle_token_reservation()
             self._record_token_usage(error.usage)
+            return
+
+        self.retain_model_call_reservation()
+
+    def record_provider_error(
+        self,
+        error: ModelProviderError,
+    ) -> None:
+        state = error.consumption_state
+
+        if state is ConsumptionState.NO_CONSUMPTION:
+            self.release_model_call_reservation()
+            return
+
+        if state is ConsumptionState.UNKNOWN_CONSUMPTION:
+            self.retain_model_call_reservation()
+            return
+
+        if state is ConsumptionState.ACTUAL_USAGE:
+            usage = error.usage
+            if usage is None:
+                raise AssertionError(
+                    "actual consumption must contain usage"
+                )
+            self._settle_token_reservation()
+            self._record_token_usage(usage)
+            return
+
+        raise AssertionError(
+            f"unsupported consumption state: {state}"
+        )

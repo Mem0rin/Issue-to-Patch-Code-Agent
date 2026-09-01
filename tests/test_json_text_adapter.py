@@ -20,11 +20,13 @@ from code_agent.kernel_types import (
     ToolCall,
 )
 from code_agent.model_adapter import (
+    ConsumptionState,
     InvalidModelOutputError,
     ModelCall,
     ModelCallBudget,
     ModelProviderError,
     ModelResponse,
+    Retryability,
     TokenUsage,
 )
 
@@ -139,6 +141,80 @@ def test_complete_normalizes_provider_error() -> None:
         )
 
     assert exc_info.value.__cause__ is original_error
+    assert (
+        exc_info.value.consumption_state
+        is ConsumptionState.UNKNOWN_CONSUMPTION
+    )
+    assert exc_info.value.retryability is Retryability.NON_RETRYABLE
+    assert exc_info.value.usage is None
+
+
+def test_complete_preserves_confirmed_no_consumption() -> None:
+    original_error = ProviderError(
+        "local validation failed",
+        consumption_state=ConsumptionState.NO_CONSUMPTION,
+    )
+    adapter = JsonTextModelAdapter(
+        StubProvider(error=original_error)
+    )
+
+    with pytest.raises(ModelProviderError) as exc_info:
+        adapter.complete(
+            history=[],
+            tools=[],
+            budget=ModelCallBudget(128),
+        )
+
+    assert (
+        exc_info.value.consumption_state
+        is ConsumptionState.NO_CONSUMPTION
+    )
+    assert exc_info.value.usage is None
+
+
+def test_complete_preserves_provider_retryability() -> None:
+    original_error = ProviderError(
+        "provider returned HTTP 503",
+        consumption_state=ConsumptionState.NO_CONSUMPTION,
+        retryability=Retryability.RETRYABLE,
+    )
+    adapter = JsonTextModelAdapter(
+        StubProvider(error=original_error)
+    )
+
+    with pytest.raises(ModelProviderError) as exc_info:
+        adapter.complete(
+            history=[],
+            tools=[],
+            budget=ModelCallBudget(128),
+        )
+
+    assert exc_info.value.retryability is Retryability.RETRYABLE
+
+
+def test_complete_preserves_provider_error_usage() -> None:
+    usage = TokenUsage(input_tokens=20, output_tokens=5)
+    original_error = ProviderError(
+        "provider returned an error with usage",
+        consumption_state=ConsumptionState.ACTUAL_USAGE,
+        usage=usage,
+    )
+    adapter = JsonTextModelAdapter(
+        StubProvider(error=original_error)
+    )
+
+    with pytest.raises(ModelProviderError) as exc_info:
+        adapter.complete(
+            history=[],
+            tools=[],
+            budget=ModelCallBudget(128),
+        )
+
+    assert (
+        exc_info.value.consumption_state
+        is ConsumptionState.ACTUAL_USAGE
+    )
+    assert exc_info.value.usage is usage
 
 
 def test_complete_preserves_invalid_model_output_error() -> None:

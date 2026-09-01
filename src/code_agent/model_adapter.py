@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol, TypeAlias
 
 from .kernel_types import (
@@ -9,10 +10,6 @@ from .kernel_types import (
     HistoryItem,
     ToolSpec,
 )
-
-
-class ModelProviderError(RuntimeError):
-    """The provider request failed."""
 
 
 class FakeModelExhaustedError(RuntimeError):
@@ -42,6 +39,55 @@ class TokenUsage:
     @property
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
+
+
+class ConsumptionState(StrEnum):
+    """How much provider consumption is known after a failure."""
+
+    NO_CONSUMPTION = "no_consumption"
+    ACTUAL_USAGE = "actual_usage"
+    UNKNOWN_CONSUMPTION = "unknown_consumption"
+
+
+class Retryability(StrEnum):
+    """Whether the caller may repeat a failed provider request."""
+
+    RETRYABLE = "retryable"
+    NON_RETRYABLE = "non_retryable"
+
+
+class ModelProviderError(RuntimeError):
+    """The provider request failed with explicit usage semantics."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        consumption_state: ConsumptionState = (
+            ConsumptionState.UNKNOWN_CONSUMPTION
+        ),
+        retryability: Retryability = Retryability.NON_RETRYABLE,
+        usage: TokenUsage | None = None,
+    ) -> None:
+        if (
+            consumption_state is ConsumptionState.ACTUAL_USAGE
+            and usage is None
+        ):
+            raise ValueError(
+                "usage is required for actual consumption"
+            )
+        if (
+            consumption_state is not ConsumptionState.ACTUAL_USAGE
+            and usage is not None
+        ):
+            raise ValueError(
+                "usage must be absent unless consumption is actual"
+            )
+
+        super().__init__(message)
+        self.consumption_state = consumption_state
+        self.retryability = retryability
+        self.usage = usage
 
 
 class InvalidModelOutputError(ValueError):

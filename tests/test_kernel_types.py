@@ -8,6 +8,7 @@ from code_agent.kernel_types import (
     FinalAnswer,
     HistoryItem,
     Message,
+    ModelFeedback,
     MessageRole,
     ToolCall,
     ToolResult,
@@ -18,6 +19,9 @@ def test_construct_valid_kernel_types() -> None:
     message = Message(
         role=MessageRole.USER,
         content="Fix the failing test.",
+    )
+    feedback = ModelFeedback(
+        error_message="model output must be valid JSON",
     )
     call = ToolCall(
         call_id="call_1",
@@ -32,6 +36,7 @@ def test_construct_valid_kernel_types() -> None:
     final = FinalAnswer(content="The task is complete.")
 
     assert message.role is MessageRole.USER
+    assert feedback.error_message == "model output must be valid JSON"
     assert call.arguments == {"path": "src/example.py"}
     assert result.call_id == call.call_id
     assert final.content == "The task is complete."
@@ -56,6 +61,10 @@ def test_tool_result_allows_empty_content() -> None:
                 content="   ",
             ),
             "content must not be blank",
+        ),
+        (
+            lambda: ModelFeedback(error_message="\t"),
+            "error_message must not be blank",
         ),
         (
             lambda: ToolCall(
@@ -105,6 +114,7 @@ def test_action_contains_model_proposals() -> None:
 def test_history_contains_model_context() -> None:
     assert set(get_args(HistoryItem)) == {
         Message,
+        ModelFeedback,
         ToolCall,
         ToolResult,
     }
