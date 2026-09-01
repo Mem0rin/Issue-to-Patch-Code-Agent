@@ -10,6 +10,17 @@ from typing import cast
 
 SCHEMA_VERSION = 1
 
+_REDACTED_VALUE = "[REDACTED]"
+_SENSITIVE_FIELD_NAMES = frozenset({
+    "access_token",
+    "api_key",
+    "authorization",
+    "password",
+    "refresh_token",
+    "secret",
+    "token",
+})
+
 EventClock = Callable[[], datetime]
 
 
@@ -68,7 +79,7 @@ class JsonlEventStore:
             sequence=len(existing_events) + 1,
             recorded_at=self._clock(),
             event_type=draft.event_type,
-            payload=dict(draft.payload),
+            payload=_redact_payload(draft.payload),
         )
         encoded = json.dumps(
             _encode_event(stored),
@@ -99,6 +110,47 @@ class JsonlEventStore:
                     _decode_event(cast(dict[str, object], decoded))
                 )
         return tuple(events)
+
+
+def _redact_payload(
+    payload: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        field_name: _redact_value(
+            value,
+            field_name=field_name,
+        )
+        for field_name, value in payload.items()
+    }
+
+
+def _redact_value(
+    value: object,
+    *,
+    field_name: str | None = None,
+) -> object:
+    if (
+        field_name is not None
+        and field_name.casefold() in _SENSITIVE_FIELD_NAMES
+    ):
+        return _REDACTED_VALUE
+
+    if isinstance(value, Mapping):
+        return {
+            name: _redact_value(
+                nested_value,
+                field_name=name,
+            )
+            for name, nested_value in value.items()
+        }
+
+    if isinstance(value, list):
+        return [
+            _redact_value(item)
+            for item in value
+        ]
+
+    return value
 
 
 def _encode_event(event: StoredEvent) -> dict[str, object]:
