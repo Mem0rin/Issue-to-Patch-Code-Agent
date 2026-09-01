@@ -205,7 +205,11 @@ def _normalize_native_action(
         )
 
     tool_call_count = len(response.tool_calls)
-    has_final_text = response.final_text is not None
+    has_final_field = response.final_text is not None
+    has_non_blank_final_text = (
+        response.final_text is not None
+        and bool(response.final_text.strip())
+    )
 
     if tool_call_count > 1:
         raise InvalidModelOutputError(
@@ -213,13 +217,13 @@ def _normalize_native_action(
             usage=usage,
         )
 
-    if tool_call_count == 1 and has_final_text:
+    if tool_call_count == 1 and has_non_blank_final_text:
         raise InvalidModelOutputError(
             "provider returned a tool call and final text",
             usage=usage,
         )
 
-    if tool_call_count == 0 and not has_final_text:
+    if tool_call_count == 0 and not has_final_field:
         raise InvalidModelOutputError(
             "provider returned no action",
             usage=usage,

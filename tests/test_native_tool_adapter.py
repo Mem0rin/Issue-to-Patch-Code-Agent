@@ -184,6 +184,34 @@ def test_complete_converts_final_answer_and_usage() -> None:
     )
 
 
+def test_complete_accepts_empty_content_with_one_tool_call() -> None:
+    raw_call = NativeProviderToolCall(
+        call_id="call_1",
+        tool_name="calculator",
+        arguments={"a": 17, "b": 25},
+    )
+    adapter = NativeToolCallingModelAdapter(
+        StubNativeProvider(
+            response=make_response(
+                tool_calls=(raw_call,),
+                final_text="",
+            )
+        )
+    )
+
+    response = adapter.complete(
+        history=[],
+        tools=[],
+        budget=ModelCallBudget(128),
+    )
+
+    assert response.action == ToolCall(
+        call_id="call_1",
+        tool_name="calculator",
+        arguments={"a": 17, "b": 25},
+    )
+
+
 @pytest.mark.parametrize(
     ("response", "expected_message"),
     [
