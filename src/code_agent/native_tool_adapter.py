@@ -57,6 +57,7 @@ class NativeProviderResponse:
     final_text: str | None
     input_tokens: int
     output_tokens: int
+    finish_reason: str | None = None
 
 
 class NativeProviderError(RuntimeError):
@@ -196,6 +197,13 @@ def _normalize_native_action(
     response: NativeProviderResponse,
     usage: TokenUsage,
 ) -> ToolCall | FinalAnswer:
+    if response.finish_reason not in {None, "stop", "tool_calls"}:
+        raise InvalidModelOutputError(
+            "provider stopped without completing an action: "
+            f"{response.finish_reason}",
+            usage=usage,
+        )
+
     tool_call_count = len(response.tool_calls)
     has_final_text = response.final_text is not None
 

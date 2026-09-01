@@ -213,6 +213,16 @@ def test_complete_converts_final_answer_and_usage() -> None:
             make_response(final_text=" "),
             "content must not be blank",
         ),
+        (
+            NativeProviderResponse(
+                tool_calls=(),
+                final_text="partial answer",
+                input_tokens=20,
+                output_tokens=5,
+                finish_reason="length",
+            ),
+            "provider stopped without completing an action: length",
+        ),
     ],
 )
 def test_complete_rejects_ambiguous_or_invalid_actions(
