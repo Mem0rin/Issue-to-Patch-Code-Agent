@@ -1,9 +1,13 @@
 # DeepSeek V4 Pro 原生工具调用烟测
 
-> 日期：2026-09-01  
-> 模型：`deepseek-v4-pro`  
-> 接口：非流式 `POST /chat/completions`  
-> 模式：`thinking.type=disabled`  
+> 日期：2026-09-01
+>
+> 模型：`deepseek-v4-pro`
+>
+> 接口：非流式 `POST /chat/completions`
+>
+> 模式：`thinking.type=disabled`
+>
 > 工具：纯计算 `calculator(a: int, b: int)`
 
 ## 验收目标
