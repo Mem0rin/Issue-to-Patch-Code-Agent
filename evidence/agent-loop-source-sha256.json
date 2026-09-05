@@ -1,0 +1,10 @@
+{
+  "src/code_agent/agent_loop.py": "d24585a403d898e1376b9103befeac35980ec2627e3f717736c56ae94f388640",
+  "src/code_agent/model_call.py": "c17d2120590e9760a52f370a7be859b0126b48c6eca567c21f35cd757009404d",
+  "src/code_agent/tool_controller.py": "edeea1fbdfbe38931d3708e9fcc056c8e33ccaf6124defd3447172779f2576be",
+  "src/code_agent/run_budget.py": "1df79bae802c5f913f2ef2943c5a26935bbdcde0e6294868465505dc91700819",
+  "src/code_agent/event_store.py": "93d09b8d2c741af45871030145d400956f5ba045a289d5254574ec95f7840cb5",
+  "src/code_agent/_event_payload.py": "fc206133f71dbe9abe103ff113e6350c6dfbb86761497ed9cd9572b0e3c61e49",
+  "src/code_agent/_event_schema.py": "b120ea3fa42178ead29340f7cb78dcc2d08ee3087b7aa1000d19ab5d71089d02",
+  "scripts/agent_loop_smoke.py": "702af3f4019ca46284173f36635ab8ff8dac5fee052f0deede286da9cf30c0b6"
+}

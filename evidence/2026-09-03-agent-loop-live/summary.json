@@ -1,0 +1,36 @@
+{
+  "mode": "live",
+  "model": "deepseek-v4-pro",
+  "success": {
+    "run_id": "deepseek-5f4327add44c4214ad26ee5e4521f9f6",
+    "status": "completed",
+    "reason": null,
+    "final_answer": "The sum of 17 and 25 is **42**.",
+    "usage": {
+      "model_calls": 2,
+      "action_steps": 2,
+      "input_tokens": 719,
+      "output_tokens": 70,
+      "reserved_tokens": 0
+    },
+    "elapsed_seconds": 2.7339999999967404,
+    "trace": "C:\\Users\\zzj06\\Documents\\ChatGPT\\Issue-to-Patch-Code-Agent\\evidence\\2026-09-03-agent-loop-live\\success.jsonl"
+  },
+  "failure": {
+    "run_id": "fake-failure-3b4db9dc76e042639ad5a10306797223",
+    "status": "model_failed",
+    "reason": "provider_non_retryable",
+    "final_answer": null,
+    "usage": {
+      "model_calls": 2,
+      "action_steps": 0,
+      "input_tokens": 3,
+      "output_tokens": 1,
+      "reserved_tokens": 1024
+    },
+    "elapsed_seconds": 0.0,
+    "trace": "C:\\Users\\zzj06\\Documents\\ChatGPT\\Issue-to-Patch-Code-Agent\\evidence\\2026-09-03-agent-loop-live\\failure.jsonl"
+  },
+  "success_events": 9,
+  "failure_events": 7
+}

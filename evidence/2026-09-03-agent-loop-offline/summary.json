@@ -1,0 +1,36 @@
+{
+  "mode": "fake",
+  "model": "fake",
+  "success": {
+    "run_id": "fake-success-671a246aa60945a0b1eaf02e839289d3",
+    "status": "completed",
+    "reason": null,
+    "final_answer": "17 + 25 = 42",
+    "usage": {
+      "model_calls": 2,
+      "action_steps": 2,
+      "input_tokens": 30,
+      "output_tokens": 10,
+      "reserved_tokens": 0
+    },
+    "elapsed_seconds": 0.0,
+    "trace": "C:\\Users\\zzj06\\Documents\\ChatGPT\\Issue-to-Patch-Code-Agent\\evidence\\2026-09-03-agent-loop-offline\\success.jsonl"
+  },
+  "failure": {
+    "run_id": "fake-failure-0c8d189a72ff42bd8edb9a36471d3c1d",
+    "status": "model_failed",
+    "reason": "provider_non_retryable",
+    "final_answer": null,
+    "usage": {
+      "model_calls": 2,
+      "action_steps": 0,
+      "input_tokens": 3,
+      "output_tokens": 1,
+      "reserved_tokens": 1024
+    },
+    "elapsed_seconds": 0.0,
+    "trace": "C:\\Users\\zzj06\\Documents\\ChatGPT\\Issue-to-Patch-Code-Agent\\evidence\\2026-09-03-agent-loop-offline\\failure.jsonl"
+  },
+  "success_events": 9,
+  "failure_events": 7
+}

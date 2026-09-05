@@ -1,25 +1,22 @@
 """Persist one Run Event Trace as append-only JSON Lines."""
 
-import json
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
 
+from ._event_payload import redact_payload, validate_payload
+from ._event_schema import (
+    SCHEMA_VERSION as SCHEMA_VERSION,
+    StoredEvent as StoredEvent,
+    _InvalidRecordedAt,
+    _InvalidStoredEvent,
+    decode_event_line,
+    encode_event_line,
+    validate_clock_recorded_at,
+)
 
-SCHEMA_VERSION = 1
-
-_REDACTED_VALUE = "[REDACTED]"
-_SENSITIVE_FIELD_NAMES = frozenset({
-    "access_token",
-    "api_key",
-    "authorization",
-    "password",
-    "refresh_token",
-    "secret",
-    "token",
-})
 
 EventClock = Callable[[], datetime]
 
@@ -41,19 +38,12 @@ class EventDraft:
     payload: Mapping[str, object]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.event_type, str):
+            raise TypeError("event_type must be a string")
         _require_non_blank(self.event_type, "event_type")
-
-
-@dataclass(frozen=True)
-class StoredEvent:
-    """One persisted, ordered Run Event."""
-
-    schema_version: int
-    run_id: str
-    sequence: int
-    recorded_at: datetime
-    event_type: str
-    payload: Mapping[str, object]
+        if not isinstance(self.payload, Mapping):
+            raise TypeError("payload must be a mapping")
+        validate_payload(self.payload)
 
 
 class JsonlEventStore:
@@ -66,130 +56,83 @@ class JsonlEventStore:
         run_id: str,
         clock: EventClock = _utc_now,
     ) -> None:
+        if not isinstance(path, Path):
+            raise TypeError("path must be a Path")
+
+        if not isinstance(run_id, str):
+            raise TypeError("run_id must be a string")
         _require_non_blank(run_id, "run_id")
+
+        if not callable(clock):
+            raise TypeError("clock must be callable")
+
         self._path = path
         self._run_id = run_id
         self._clock = clock
 
+    @property
+    def run_id(self) -> str:
+        return self._run_id
+
     def append(self, draft: EventDraft) -> StoredEvent:
+        if not isinstance(draft, EventDraft):
+            raise TypeError("draft must be an EventDraft")
+        redacted_payload = redact_payload(draft.payload)
+
         existing_events = self.read_all()
+        try:
+            recorded_at = validate_clock_recorded_at(self._clock())
+        except _InvalidRecordedAt as exc:
+            raise ValueError(
+                f"append trace '{self._path}': {exc}"
+            ) from exc
         stored = StoredEvent(
             schema_version=SCHEMA_VERSION,
             run_id=self._run_id,
             sequence=len(existing_events) + 1,
-            recorded_at=self._clock(),
+            recorded_at=recorded_at,
             event_type=draft.event_type,
-            payload=_redact_payload(draft.payload),
+            payload=redacted_payload,
         )
-        encoded = json.dumps(
-            _encode_event(stored),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        with self._path.open(
-            "a",
-            encoding="utf-8",
-            newline="\n",
-        ) as trace_file:
-            trace_file.write(encoded)
-            trace_file.write("\n")
+        event_line = encode_event_line(stored)
+        try:
+            with self._path.open(
+                "a",
+                encoding="utf-8",
+                newline="\n",
+            ) as trace_file:
+                trace_file.write(event_line)
+                trace_file.flush()
+                os.fsync(trace_file.fileno())
+        except OSError as exc:
+            exc.add_note(
+                f"append trace '{self._path}' failed; "
+                "event durability is unknown"
+            )
+            raise
         return stored
 
     def read_all(self) -> tuple[StoredEvent, ...]:
-        if not self._path.exists():
-            return ()
+        try:
+            if not self._path.exists():
+                return ()
 
-        events: list[StoredEvent] = []
-        with self._path.open("r", encoding="utf-8") as trace_file:
-            for line in trace_file:
-                decoded: object = json.loads(line)
-                if not isinstance(decoded, dict):
-                    raise ValueError("stored event must be a JSON object")
-                events.append(
-                    _decode_event(cast(dict[str, object], decoded))
-                )
-        return tuple(events)
-
-
-def _redact_payload(
-    payload: Mapping[str, object],
-) -> dict[str, object]:
-    return {
-        field_name: _redact_value(
-            value,
-            field_name=field_name,
-        )
-        for field_name, value in payload.items()
-    }
-
-
-def _redact_value(
-    value: object,
-    *,
-    field_name: str | None = None,
-) -> object:
-    if (
-        field_name is not None
-        and field_name.casefold() in _SENSITIVE_FIELD_NAMES
-    ):
-        return _REDACTED_VALUE
-
-    if isinstance(value, Mapping):
-        return {
-            name: _redact_value(
-                nested_value,
-                field_name=name,
-            )
-            for name, nested_value in value.items()
-        }
-
-    if isinstance(value, list):
-        return [
-            _redact_value(item)
-            for item in value
-        ]
-
-    return value
-
-
-def _encode_event(event: StoredEvent) -> dict[str, object]:
-    return {
-        "schema_version": event.schema_version,
-        "run_id": event.run_id,
-        "sequence": event.sequence,
-        "recorded_at": event.recorded_at.isoformat(),
-        "event_type": event.event_type,
-        "payload": event.payload,
-    }
-
-
-def _decode_event(encoded: Mapping[str, object]) -> StoredEvent:
-    schema_version = encoded["schema_version"]
-    run_id = encoded["run_id"]
-    sequence = encoded["sequence"]
-    recorded_at = encoded["recorded_at"]
-    event_type = encoded["event_type"]
-    payload = encoded["payload"]
-
-    if not isinstance(schema_version, int):
-        raise ValueError("schema_version must be an integer")
-    if not isinstance(run_id, str):
-        raise ValueError("run_id must be a string")
-    if not isinstance(sequence, int):
-        raise ValueError("sequence must be an integer")
-    if not isinstance(recorded_at, str):
-        raise ValueError("recorded_at must be a string")
-    if not isinstance(event_type, str):
-        raise ValueError("event_type must be a string")
-    if not isinstance(payload, dict):
-        raise ValueError("payload must be an object")
-
-    return StoredEvent(
-        schema_version=schema_version,
-        run_id=run_id,
-        sequence=sequence,
-        recorded_at=datetime.fromisoformat(recorded_at),
-        event_type=event_type,
-        payload=cast(dict[str, object], payload),
-    )
+            events: list[StoredEvent] = []
+            with self._path.open("rb") as trace_file:
+                for line_number, raw_line in enumerate(trace_file, start=1):
+                    try:
+                        event = decode_event_line(
+                            raw_line,
+                            expected_run_id=self._run_id,
+                            expected_sequence=len(events) + 1,
+                        )
+                    except _InvalidStoredEvent as exc:
+                        raise ValueError(
+                            f"read_all trace '{self._path}' "
+                            f"line {line_number}: {exc}"
+                        ) from exc
+                    events.append(event)
+            return tuple(events)
+        except OSError as exc:
+            exc.add_note(f"read_all trace '{self._path}' failed")
+            raise

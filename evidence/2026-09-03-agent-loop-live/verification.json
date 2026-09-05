@@ -1,0 +1,22 @@
+{
+  "source_hashes_unchanged": true,
+  "model": "deepseek-v4-pro",
+  "checks": {
+    "success": {
+      "mode": "live",
+      "events": 9,
+      "attempts_paired": 2,
+      "usage_reconciled": true,
+      "terminal_result_matches": true,
+      "run_id": "deepseek-5f4327add44c4214ad26ee5e4521f9f6"
+    },
+    "failure": {
+      "mode": "fake",
+      "events": 7,
+      "attempts_paired": 2,
+      "usage_reconciled": true,
+      "terminal_result_matches": true,
+      "run_id": "fake-failure-3b4db9dc76e042639ad5a10306797223"
+    }
+  }
+}

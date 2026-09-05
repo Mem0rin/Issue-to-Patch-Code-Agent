@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -134,10 +135,21 @@ class BudgetTracker:
     def usage(self) -> RunUsage:
         return self._usage
 
+    @property
+    def elapsed_seconds(self) -> float:
+        started_at = _finite_clock_value(self._started_at)
+        current = _finite_clock_value(self._clock())
+        elapsed = current - started_at
+        if not math.isfinite(elapsed) or elapsed < 0:
+            raise ValueError("elapsed_seconds must be finite and >= 0")
+        return elapsed
+
+    @property
+    def time_exhausted(self) -> bool:
+        return self.elapsed_seconds >= self._budget.max_elapsed_seconds
+
     def stop_reason(self) -> BudgetStopReason | None:
-        elapsed_seconds = (
-            self._clock() - self._started_at
-        )
+        elapsed_seconds = self.elapsed_seconds
 
         # TODO：依次检查：
         # 1. elapsed_seconds
@@ -287,3 +299,15 @@ class BudgetTracker:
         raise AssertionError(
             f"unsupported consumption state: {state}"
         )
+
+
+def _finite_clock_value(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError("clock must return a number (bool is excluded)")
+    try:
+        seconds = float(value)
+    except OverflowError as error:
+        raise ValueError("clock must return a finite number") from error
+    if not math.isfinite(seconds):
+        raise ValueError("clock must return a finite number")
+    return seconds
