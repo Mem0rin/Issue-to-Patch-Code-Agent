@@ -1,6 +1,34 @@
 # Issue-to-Patch Code Agent
 
-同步 Agent Kernel 已提供公开入口 `code_agent.agent_loop.run_agent`。它组合模型适配器、预算、工具策略、一次性审批、history 和 JSONL 运行轨迹。
+## 项目简介
+
+Issue-to-Patch Code Agent v0 是一个可审计的同步单 Agent Kernel。它先把一次模型行动如何被接受、记账、授权和追踪做清楚，再扩展真实的代码修复能力。模型输出只是一项提议；只有通过运行时检查和权限判断后，工具才会接触环境。
+
+一次模型请求从预算预留开始。响应返回后，Kernel 按实际 Token 用量结算，并把 `ToolCall` 与 `FinalAnswer` 都记作行动。已确认没有消费才释放预留，消费情况不明则保留。Provider 故障和模型格式错误各用一套重试额度，每次重试重新申请预算。这样即使运行失败，账本也不会把已经发生或可能发生的消耗抹掉。
+
+工具调用由 Registry、Runtime、Policy 和一次性 Approval 共同处理。Registry 确认工具存在，Runtime 校验参数，Policy 决定允许、询问或拒绝。用户批准后，系统还会重新准备工具并再次检查 Policy，避免等待批准期间工具或权限发生变化。模型提出动作、系统授予权限、环境实际执行，是三件分开的事。
+
+每次运行都会写入严格的 JSONL 轨迹。`model_call_prepared` 只表示调用意图，`tool_call_requested` 也不等于工具已经执行；完成、失败和最终终态分别记录。EventStore 拒绝重复 JSON 键、缺少 LF 的尾行、非有限浮点数和不连续序号，并在落盘前递归脱敏。轨迹写入一旦失败，Loop 会停止后续动作，不会拿一份缺失关键证据的记录宣称运行成功。
+
+ModelAdapter 隔离了 Kernel 与具体 Provider 协议，Fake Model 和 DeepSeek 使用同一套循环、预算和工具规则。运行时 `history` 保存下一轮模型真正需要的内容，EventStore 保存审计证据；两者职责独立，日志不会自动混入模型上下文。
+
+当前 v0 已完成预算约束下的模型循环、工具调用、同步审批、重试、明确终止和过程追踪。它仍是单进程、单写者实现，不提供抢占式超时、崩溃恢复、旧运行续接和完整 Issue-to-Patch 流程。这些限制写在接口和证据里，避免把演示能力说成已经解决的问题。
+
+核心流程：
+
+```text
+预算预留 → 模型与 Adapter → 用量结算 → Agent Loop
+                                      ├─ FinalAnswer → 结束
+                                      └─ ToolCall
+                                           ↓
+                               Registry / Runtime
+                                           ↓
+                              Policy / Approval
+                                           ↓
+                                    ToolResult
+                                           ↓
+                                  history → 下一轮
+```
 
 ## 运行
 
