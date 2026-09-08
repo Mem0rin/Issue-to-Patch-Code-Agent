@@ -2,87 +2,105 @@
 
 ## 项目简介
 
-Issue-to-Patch Code Agent v0 是一个可审计的同步单 Agent Kernel。它先把一次模型行动如何被接受、记账、授权和追踪做清楚，再扩展真实的代码修复能力。模型输出只是一项提议；只有通过运行时检查和权限判断后，工具才会接触环境。
+Issue-to-Patch Code Agent 是一个面向软件问题修复的单 Agent Kernel。项目从执行内核开始，先解决模型如何调用、动作如何受控、资源如何计算，以及运行过程如何追踪，再逐步扩展代码检索、补丁生成和测试验证能力。
 
-一次模型请求从预算预留开始。响应返回后，Kernel 按实际 Token 用量结算，并把 `ToolCall` 与 `FinalAnswer` 都记作行动。已确认没有消费才释放预留，消费情况不明则保留。Provider 故障和模型格式错误各用一套重试额度，每次重试重新申请预算。这样即使运行失败，账本也不会把已经发生或可能发生的消耗抹掉。
+v0 已经建立一条完整的 Agent 执行链：模型读取上下文后返回最终答案或提出工具调用，Kernel 根据预算、工具状态和权限策略决定是否继续，并将工具结果交给模型完成下一轮推理。
 
-工具调用由 Registry、Runtime、Policy 和一次性 Approval 共同处理。Registry 确认工具存在，Runtime 校验参数，Policy 决定允许、询问或拒绝。用户批准后，系统还会重新准备工具并再次检查 Policy，避免等待批准期间工具或权限发生变化。模型提出动作、系统授予权限、环境实际执行，是三件分开的事。
+项目将模型决策、系统授权和环境执行分开。模型只能提出动作，不能直接获得工具执行权；用户批准后，系统仍会重新检查工具与权限。模型调用产生的资源消耗不会因失败而被撤销，无法确认的消费会保留为未知状态。运行轨迹也会区分准备执行、提出请求和实际完成，避免根据意图事件推断外部操作已经发生。
 
-每次运行都会写入严格的 JSONL 轨迹。`model_call_prepared` 只表示调用意图，`tool_call_requested` 也不等于工具已经执行；完成、失败和最终终态分别记录。EventStore 拒绝重复 JSON 键、缺少 LF 的尾行、非有限浮点数和不连续序号，并在落盘前递归脱敏。轨迹写入一旦失败，Loop 会停止后续动作，不会拿一份缺失关键证据的记录宣称运行成功。
+当前版本仍是同步、单进程的初版内核，尚未完成完整的 Issue-to-Patch 工作流。代码检索、文件修改、隔离执行、跨运行恢复和真实修复任务评测是后续开发重点。
 
-ModelAdapter 隔离了 Kernel 与具体 Provider 协议，Fake Model 和 DeepSeek 使用同一套循环、预算和工具规则。运行时 `history` 保存下一轮模型真正需要的内容，EventStore 保存审计证据；两者职责独立，日志不会自动混入模型上下文。
+## 核心流程
 
-当前 v0 已完成预算约束下的模型循环、工具调用、同步审批、重试、明确终止和过程追踪。它仍是单进程、单写者实现，不提供抢占式超时、崩溃恢复、旧运行续接和完整 Issue-to-Patch 流程。这些限制写在接口和证据里，避免把演示能力说成已经解决的问题。
+```mermaid
+flowchart TD
+    A[接收 RunRequest] --> B[验证请求、依赖与运行轨迹]
+    B -->|验证失败| V[抛出输入错误，不产生运行副作用]
+    B -->|验证通过| C[记录运行开始]
+    C --> D[检查运行预算并预留 Token]
 
-核心流程：
+    D -->|预算不足| Z[记录终止状态并返回结果]
+    D -->|预算允许| E[通过 Model Adapter 调用模型]
 
-```text
-预算预留 → 模型与 Adapter → 用量结算 → Agent Loop
-                                      ├─ FinalAnswer → 结束
-                                      └─ ToolCall
-                                           ↓
-                               Registry / Runtime
-                                           ↓
-                              Policy / Approval
-                                           ↓
-                                    ToolResult
-                                           ↓
-                                  history → 下一轮
+    E -->|可重试错误| F[记录失败与重试信息]
+    F --> D
+    E -->|重试耗尽| Z
+    E -->|有效响应| G[结算实际用量]
+
+    G --> H{模型返回的动作}
+    H -->|FinalAnswer| Z
+    H -->|ToolCall| I[检查调用 ID]
+    I -->|ID 重复| Z
+    I -->|ID 有效| J[Tool Controller]
+
+    J --> K[Registry 查找工具并校验参数]
+    K -->|工具或参数无效| R[生成错误 ToolResult]
+    K -->|准备完成| L{Policy 决策}
+
+    L -->|Deny| R
+    L -->|Allow| M[执行工具]
+    L -->|Ask| N[请求用户批准]
+
+    N -->|用户拒绝| R
+    N -->|用户批准| O[重新检查工具、参数与 Policy]
+    O -->|当前状态不允许| R
+    O -->|仍可执行| M
+
+    M --> P[生成 ToolResult]
+    R --> Q[记录结果并写入 History]
+    P --> Q
+    Q --> D
+
+    C -.意外异常.-> X[传播异常]
+    E -.意外异常.-> X
+    J -.意外异常.-> X
+    X --> Y[轨迹可用时记录 run_aborted]
 ```
 
-## 运行
+模型只负责生成 `FinalAnswer` 或 `ToolCall`。预算模块决定运行能否继续，Tool Controller 负责工具准备和权限判断，实际结果写入 History 后再交给模型。任何一步发生意外异常都会停止循环；可预期的预算耗尽和模型失败则通过结构化终态返回。
 
-在仓库根目录使用 Python 3.12 环境：
+## 模块分区
 
-```powershell
-$env:PYTHONDONTWRITEBYTECODE = '1'
-$testTemp = Join-Path $env:TEMP ("agent-loop-user-" + [guid]::NewGuid())
-.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp $testTemp
-.\.venv\Scripts\python.exe -m mypy src tests scripts
-.\.venv\Scripts\python.exe scripts/agent_loop_smoke.py --output-dir evidence/my-loop-offline
-```
+### Agent Loop
 
-烟测默认不联网，生成 success.jsonl、failure.jsonl 和 summary.json。输出目录必须不存在，以免覆盖已有证据。
+Agent Loop 是 Kernel 的控制中心，负责连接模型调用、工具执行、人工审批、运行历史和终止状态。
 
-真实模式读取现有 DEEPSEEK_API_KEY，调用 DeepSeek 的 /chat/completions。请求内容是固定的 17 + 25 任务、calculator 工具定义、服务生成的工具调用及计算结果 42；工具不访问文件或网络。明确允许真实调用后运行：
+它维护一次运行的状态变化，判断模型返回的是最终答案还是工具调用，并在每轮操作前检查预算和时间。正常完成、预算停止、模型失败与程序异常分别使用不同的结果表达。
 
-```powershell
-.\.venv\Scripts\python.exe scripts/agent_loop_smoke.py --live --output-dir evidence/my-loop-live
-```
+### Model Adapter
 
-## 入口契约
+Model Adapter 隔离 Kernel 与具体模型协议。不同模型服务可以使用不同的请求和响应格式，但进入 Kernel 后都会被转换成统一的模型响应、工具调用、Token 用量和错误类型。
 
-```python
-result = run_agent(
-    request,
-    adapter=adapter,
-    controller=controller,
-    tools=registry.specs,
-    event_store=store,
-    approval_handler=approval_handler,
-    clock=clock,
-)
-```
+目前已经接入 Fake Model 和 DeepSeek。Fake Model 用于确定性测试，真实模型用于验证完整工具循环。
 
-- request 为 RunRequest，初始 history 只接受 SYSTEM / USER 消息，至少包含一个 USER；预算与重试计数在入口完整验证。
-- tools 为名称唯一的 ToolSpec 元组，允许空集合；schema 必须是有效 JSON 对象。请求、工具描述和各次模型参数使用独立快照。
-- store 的 run_id 必须匹配 request.run_id，trace 必须为空。每个运行独占 controller 的审批状态及 trace，不支持并发写者或恢复旧运行。
-- approval_handler 必须返回匹配请求 ID 的 ApprovalResponse；批准后仍重新检查工具和策略。硬性 DENY 优先，工具执行错误成为配对的 ToolResult。
-- clock 默认 monotonic。时间经过检查必须有限且不倒退；同步模型、审批或工具不会被抢占中断，返回后及启动后续操作前检查时间。
-- 正常终态为 completed、budget_stopped、model_failed。意外异常保留操作上下文；事件写入失败立即中止，不能返回 completed，也不会向已失效 Store 重试写错误事件。
+### Run Budget
 
-重试分 Provider 与非法输出两类，额度分别计数；每次尝试重新预留，错误按消费状态结算。未知消费保留 reserved_tokens。安排的 ModelFeedback 会进入后续模型上下文及最终 history。
+Run Budget 管理一次 Agent 运行允许使用的资源，包括模型调用次数、行动步数、Token 和运行时间。
 
-## 轨迹
+每次模型请求都会先申请预算，响应返回后再记录实际用量。调用失败时，系统根据已知的消费状态决定释放、结算或保留预留额度。Provider 故障和模型输出错误分别计算重试次数，每次重试都要重新通过预算检查。
 
-run_started → 每次 model_call_prepared / completed 或 failed → 可选 model_retry_scheduled → 工具请求、实际策略、审批、工具结果 → run_finished。意外错误在 Store 仍可用时记录 run_aborted。
+### Tool System
 
-意图事件不能证明外部操作已经完成。文件写入与模型 / 工具操作没有事务，损坏或缺少终止事件的 trace 不支持安全自动重放。写盘前递归字段脱敏不保证检测任意自由文本中的秘密。
+Tool System 负责管理模型可以请求的外部能力，由 Registry、Runtime、Policy 和 Approval 组成。
 
-## 验收
+Registry 保存工具定义，Runtime 检查工具是否存在以及参数是否符合要求，Policy 决定允许、拒绝或询问用户。需要批准的工具只能使用一次对应的批准结果，并在执行前重新检查当前状态。
 
-2026-09-03：849 项测试通过；strict 检查 59 个文件通过。标准库 trace 行覆盖率：agent_loop、model_call、tool_controller 均为 100%。离线成功 / 失败轨迹已核对事件序号、尝试配对及用量。
+该分区保证模型提出工具调用并不等于工具已经获得执行权限。
 
-用户明确允许使用现有密钥后，真实 DeepSeek Loop 已通过：2 次模型调用、1 次 calculator 执行，最终回答 42；719 input / 70 output Token，reserved_tokens=0，耗时约 2.734 秒。成功轨迹的 9 条事件已重读核对，模拟失败轨迹另有 7 条事件。见 [验收记录](evidence/2026-09-03-agent-loop-validation.md) 和 [真实运行摘要](evidence/2026-09-03-agent-loop-live/summary.json)。
+### Run History
 
-2026-09-05：EventStore 缺 LF、浮点溢出和扩展字段兼容证据已完成。全量 878 项测试、strict 62 个文件通过；新增扩展字段测试行覆盖率 100%。09-03 真实运行和源码哈希保留为历史证据。显式资源上限继续延后，完整 Issue-to-Patch 修复流程另行推进。
+Run History 保存当前运行中模型真正需要看到的信息，包括初始消息、模型反馈、工具调用和工具结果。
+
+历史由 Agent Loop 维护，不会反向修改调用方传入的初始请求。工具调用与结果通过 `call_id` 配对，下一轮模型可以根据真实工具结果继续推理。
+
+### Event Store
+
+Event Store 保存 Agent 运行过程中的结构化轨迹，用于检查资源消耗、工具决策、审批过程和终止原因。
+
+运行轨迹与模型上下文分开：History 服务于后续推理，Event Store 服务于审计和问题定位。轨迹记录失败时，Kernel 会停止后续动作，避免在缺少关键证据的情况下继续运行。
+
+## 后续方向
+
+下一阶段将围绕真实代码仓库操作展开，优先加入受工作区限制的文件读取、目录浏览和文本检索工具，再实现受控补丁修改与自动化测试。
+
+在此基础上，项目还需要补充资源上限、工具隔离、故障恢复和系统化评测，最终形成从 Issue 理解、代码定位、补丁生成到验证结果的完整工作流。
